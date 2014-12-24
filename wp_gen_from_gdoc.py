@@ -11,8 +11,14 @@ p.add_argument('-u', '--user')
 p.add_argument('-p', '--password')
 p.add_argument('-d', '--docname')
 p.add_argument('-s', '--startstring')
+p.add_argument('-v', '--verbosity')
+
+verbose = False
 
 opts = p.parse_args()
+
+if opts.verbosity:
+  verbose = True
 
 arg_error = False
 
@@ -42,15 +48,17 @@ from BeautifulSoup import BeautifulSoup
 import mechanize
 
 def get_header_info(html_lines, cur_line_num):  
-
-  print '_dbg in get_header_info'
-  print '_dbg cur_line_num 1: %d' % cur_line_num
+  if verbose:
+    print '_dbg in get_header_info'
+    print '_dbg cur_line_num 1: %d' % cur_line_num
   cur_line = html_lines[cur_line_num]
-  print '_dbg initial cur_line: %s' % cur_line
+  if verbose:
+    print '_dbg initial cur_line: %s' % cur_line
   title = ''
   cur_line_num +=1
   cur_line = html_lines[cur_line_num]
-  print '_dbg cur_line: %s' % cur_line
+  if verbose:
+    print '_dbg cur_line: %s' % cur_line
   if 'name' in cur_line:
     cur_line_num = cur_line_num+2
     cur_line = html_lines[cur_line_num]
@@ -62,24 +70,34 @@ def get_header_info(html_lines, cur_line_num):
   return '', cur_line_num
 
 def get_raw_info(html_lines, cur_line_num, tag_name):  
-  end_tag = "</%s>" % tag_name
+  raw_str = ''
+  end_tag = '</%s>' % tag_name
+  if verbose:
+    print '_dbg in get_raw_info'
+    print '_dbg end_tag: %s' % end_tag
+  cur_line = html_lines[cur_line_num]
   while cur_line_num < len(html_lines) and end_tag  not in cur_line:
-    raw_str = html_lines[cur_line_num]
+    raw_str += html_lines[cur_line_num]
     cur_line_num += 1
+    cur_line = html_lines[cur_line_num]
 
+  if end_tag in cur_line:
+    raw_str += end_tag
   return raw_str, cur_line_num
     
   
 
 def get_title(html_lines, cur_line_num):  
-  print '_dbg in get_title'
-  print '_dbg cur_line_num 2: %d' % cur_line_num
+  if verbose:
+    print '_dbg in get_title'
+    print '_dbg cur_line_num 2: %d' % cur_line_num
   return get_header_info(html_lines, cur_line_num)
 
 def get_tag(html_lines, cur_line_num, after_title, tag_name):
   if 'h' in tag_name or 'subtitle' in tag_name:
-    print '_dbg about to call get_header_info'
-    print '_dbg cur_line_num 3: %d' % cur_line_num
+    if verbose:
+      print '_dbg about to call get_header_info'
+      print '_dbg cur_line_num 3: %d' % cur_line_num
     tag_str, cur_line_num = get_header_info(html_lines, cur_line_num)
   else:
     tag_str, cur_line_num = get_raw_info(html_lines, cur_line_num, tag_name)
@@ -93,14 +111,18 @@ def get_tag(html_lines, cur_line_num, after_title, tag_name):
   
 
 def get_after_title(html_lines, cur_line_num, after_title):
-  print 'in get_after_title' 
+  if verbose:
+    print 'in get_after_title' 
   cur_line = html_lines[cur_line_num]
-  print '_dbg cur_line: %s' % cur_line
+  if verbose:
+    print '_dbg cur_line: %s' % cur_line
   while cur_line_num < len(html_lines) and ' title' not in cur_line:
-    print '_dbg checking cur_line: %s' % cur_line
+    if verbose:
+      print '_dbg checking cur_line: %s' % cur_line
     if '<h1' in cur_line:
-      print "_dbg about to call get_tag"
-      print '_dbg cur_line_num 4: %d' % cur_line_num
+      if verbose:
+        print "_dbg about to call get_tag"
+        print '_dbg cur_line_num 4: %d' % cur_line_num
       cur_line_num = get_tag(html_lines, cur_line_num, after_title, 'h1')
     elif '<h2' in cur_line:
       cur_line_num = get_tag(html_lines, cur_line_num, after_title, 'h2')
@@ -114,9 +136,12 @@ def get_after_title(html_lines, cur_line_num, after_title):
       cur_line_num = get_tag(html_lines, cur_line_num, after_title, 'h6')
     elif 'subtitle' in cur_line:
       cur_line_num = get_tag(html_lines, cur_line_num, after_title, 'subtitle')
+    elif '<p' in cur_line:
+      cur_line_num = get_tag(html_lines, cur_line_num, after_title, 'p')
 
     cur_line_num += 1
-    cur_line = html_lines[cur_line_num]
+    if cur_line_num < len(html_lines):
+      cur_line = html_lines[cur_line_num]
 
   if ' title' in cur_line:
     cur_line_num += -1
@@ -132,9 +157,11 @@ def get_page_info(html_lines, cur_line_num):
     page_info['title'] = title
     page_info['after_title'] = []
     after_title = page_info['after_title']
-    print '_dbg about to call get_after_title'
+    if verbose:
+      print '_dbg about to call get_after_title'
     if cur_line_num + 1 < len(html_lines):
-      print '_dbg cur_line_num 5: %d' % cur_line_num 
+      if verbose:
+        print '_dbg cur_line_num 5: %d' % cur_line_num 
       cur_line_num = get_after_title(html_lines, cur_line_num+1, after_title)  
   #finally:
   return page_info, cur_line_num
@@ -156,7 +183,8 @@ def get_gdoc_as_html():
 
   found = false
   if not feed.entry:
-    print 'No entries in feed.\n'
+    if verbose:
+      print 'No entries in feed.\n'
   for entry in feed.entry:
     if opt.docname in entry.title.text:
       client.Download(entry, 'gdoc.html') 
@@ -172,11 +200,13 @@ if found:
   html_str = open('gdoc.html').read()
   soup = BeautifulSoup(html_str)
   html_pretty = soup.prettify()
-  #print html_pretty
+  if verbose:
+    print html_pretty
   #sys.exit(1)
   html_lines = html_pretty.split('\n')
   num_html_lines = len(html_lines)
-  print '_dbg num lines: %d' % len(html_lines)
+  if verbose:
+    print '_dbg num lines: %d' % len(html_lines)
 
   cur_line_num = 0
   start_found = False
