@@ -77,7 +77,7 @@ def get_title(html_lines, cur_line_num):
   return get_header_info(html_lines, cur_line_num)
 
 def get_tag(html_lines, cur_line_num, after_title, tag_name):
-  if 'h' in tag_name:
+  if 'h' in tag_name or 'subtitle' in tag_name:
     print '_dbg about to call get_header_info'
     print '_dbg cur_line_num 3: %d' % cur_line_num
     tag_str, cur_line_num = get_header_info(html_lines, cur_line_num)
@@ -102,6 +102,19 @@ def get_after_title(html_lines, cur_line_num, after_title):
       print "_dbg about to call get_tag"
       print '_dbg cur_line_num 4: %d' % cur_line_num
       cur_line_num = get_tag(html_lines, cur_line_num, after_title, 'h1')
+    elif '<h2' in cur_line:
+      cur_line_num = get_tag(html_lines, cur_line_num, after_title, 'h2')
+    elif '<h3' in cur_line:
+      cur_line_num = get_tag(html_lines, cur_line_num, after_title, 'h3')
+    elif '<h4' in cur_line:
+      cur_line_num = get_tag(html_lines, cur_line_num, after_title, 'h4')
+    elif '<h5' in cur_line:
+      cur_line_num = get_tag(html_lines, cur_line_num, after_title, 'h5')
+    elif '<h6' in cur_line:
+      cur_line_num = get_tag(html_lines, cur_line_num, after_title, 'h6')
+    elif 'subtitle' in cur_line:
+      cur_line_num = get_tag(html_lines, cur_line_num, after_title, 'subtitle')
+
     cur_line_num += 1
     cur_line = html_lines[cur_line_num]
 
