@@ -4,6 +4,12 @@
  */
 class YAACF_Command extends WP_CLI_Command {
 
+    function get_field_name($field_label) {
+      $field_name = strtolower($field_label);
+      $field_name = str_replace(' ', '_', $field_name);
+      return $field_name;
+    }
+
     function assign_page_to_field_group($fgrp_id, $page_id) {
       $rule_json = '{"param":"page","operator":"==","value":"111","order_no":0,"group_no":0}';
       $rule_arr = json_decode($rule_json, true);
@@ -124,6 +130,78 @@ class YAACF_Command extends WP_CLI_Command {
 
     }
 
+    function update_post_id($from_post_id, $to_post_id, $meta_key) {
+      global $wpdb;
+      $sql = $wpdb->prepare("UPDATE `wp_postmeta` SET `post_id` = %s WHERE `meta_key` = %s AND `post_id` = %d", $to_post_id, $meta_key, $from_post_id);
+
+      //error_log("_dbg sql: " . $sql);
+      $wpdb->query($sql);
+    }
+
+    function find_acf_group_page_id($acf_group_id) {
+      $meta_values = get_post_meta($acf_group_id);
+      $acf_group_page_id = 0;
+      foreach ($meta_values as $meta_key => $meta_value) {
+        if ($meta_key === 'rule') {
+          $rule = unserialize($meta_value[0]);
+          if($rule['param'] === 'page') {
+            error_log("_dbg rule value: " . $rule['value']);
+            $acf_group_page_id = $rule['value'];
+          }
+        }
+      }
+
+      return $acf_group_page_id;
+    }
+
+    function find_field_meta_key($acf_group_id, $field_label) {
+      $meta_values = get_post_meta($acf_group_id);
+      $found_meta_key = '';
+      foreach ($meta_values as $meta_key => $meta_value) {
+        if (preg_match("/^field_/", $meta_key)) {
+          error_log("_dbg field_ found");
+          $f = unserialize($meta_value[0]);
+          if ($f['label'] === $field_label) {
+            $found_meta_key = $meta_key;
+            return $found_meta_key;   
+          }
+        }
+      }
+
+      return $found_meta_key;
+    }
+
+    function move_field_value($from_page_id, $to_page_id, $field_label) {
+      $field_name = $this->get_field_name($field_label);
+      $this->update_post_id($from_page_id, $to_page_id, $field_name); 
+      $this->update_post_id($from_page_id, $to_page_id, '_' . $field_name); 
+    }
+
+    function handle_field_move($assoc_args) {
+      $success=FALSE;
+
+      $from_post_id = $assoc_args['field_from_group_id'];
+      $to_post_id = $assoc_args['field_to_group_id'];
+      $field_label = $assoc_args['field_label'];
+      
+
+      $f_mk = $this->find_field_meta_key($from_post_id, $field_label);
+      if ($f_mk) {
+	$success = $this->update_post_id($from_post_id, $to_post_id, $f_mk); 
+	$from_page_id = $this->find_acf_group_page_id($from_post_id); 
+	$to_page_id = $this->find_acf_group_page_id($to_post_id); 
+	if($from_page_id && $to_page_id && $from_page_id !== $to_page_id) {
+	  $this->move_field_value($from_page_id, $to_page_id, $field_label);
+	}
+      }
+
+      if ($success) {
+        WP_CLI::success('acf field moved');
+      } else {
+        WP_CLI::error('failure moving acf field');
+      }
+    }
+
     /**
      * Creates an advanced custom field field group
      * 
@@ -136,7 +214,7 @@ class YAACF_Command extends WP_CLI_Command {
      * 
      *     wp yaacf field create --field_type='text' --field_label='Section 1 Header' --field_order_no=4 --field_group_id=118
      *
-     * @synopsis <command> [--field_type=<field_type>] [--field_label=<field_label>] [--field_order_no=<field_order_no>] [--field_group_id=<field_group_id>] [--field_value=<field_value>]
+     * @synopsis <command> [--field_type=<field_type>] [--field_label=<field_label>] [--field_order_no=<field_order_no>] [--field_group_id=<field_group_id>] [--field_value=<field_value>] [--field_from_group_id=<field_from_group_id>] [--field_to_group_id=<field_to_group_id>]
      */
     function field( $args, $assoc_args ) {
         $cmd = $args[0];
@@ -144,6 +222,9 @@ class YAACF_Command extends WP_CLI_Command {
         switch($cmd) {
           case 'create':
             $this->handle_field_create($assoc_args);
+          break;
+          case 'move':
+            $this->handle_field_move($assoc_args);
           break;
           default:
             WP_CLI::error('Unknown command: ' . $cmd);
