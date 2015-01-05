@@ -3,6 +3,8 @@
  * Implements acf command.
  */
 class YAACF_Command extends WP_CLI_Command {
+    var $testrun = FALSE;
+    var $debugacf = FALSE;
 
     function get_field_name($field_label) {
       $field_name = strtolower($field_label);
@@ -134,8 +136,22 @@ class YAACF_Command extends WP_CLI_Command {
       global $wpdb;
       $sql = $wpdb->prepare("UPDATE `wp_postmeta` SET `post_id` = %s WHERE `meta_key` = %s AND `post_id` = %d", $to_post_id, $meta_key, $from_post_id);
 
-      //error_log("_dbg sql: " . $sql);
-      $wpdb->query($sql);
+      if($this->testrun) {
+        error_log("_dbg  update_post_id sql: " . $sql);
+      } else {
+        $wpdb->query($sql);
+      }
+    }
+
+    function update_mk($post_id, $from_mk, $to_mk) {
+      global $wpdb;
+      $sql = $wpdb->prepare("UPDATE `wp_postmeta` SET `meta_key` = %s WHERE `meta_key` = %s AND `post_id` = %d", $to_mk, $from_mk, $post_id);
+
+      if($this->testrun) {
+        error_log("_dbg update_mk sql: " . $sql);
+      } else {
+        $wpdb->query($sql);
+      }
     }
 
     function find_acf_group_page_id($acf_group_id) {
@@ -171,6 +187,42 @@ class YAACF_Command extends WP_CLI_Command {
       return $found_meta_key;
     }
 
+    function get_max_order_num($acf_group_id) {
+      if($this->testrun) {
+        error_log("_dbg in get_max_order_num");
+      }
+      $meta_values = get_post_meta($acf_group_id);
+      $max_order_num = 0;
+      foreach ($meta_values as $meta_key => $meta_value) {
+        if (preg_match("/^field_/", $meta_key)) {
+          $f = unserialize($meta_value[0]);
+	  if($this->testrun) {
+	    error_log("_dbg field order number: " . $f['order_no']);
+	  }
+          if($f['order_no'] > $max_order_num) {
+            $max_order_num = $f['order_no'];
+          }
+        }
+      }
+      return $max_order_num;
+    }
+
+    function get_max_section_num($acf_group_id) {
+      $meta_values = get_post_meta($acf_group_id);
+      $max_section_num = 0;
+      foreach ($meta_values as $meta_key => $meta_value) {
+        if (preg_match("/^field_/", $meta_key)) {
+          $f = unserialize($meta_value[0]);
+          if (preg_match("/Section (\\d)+/", $f['label'], $matches)) {
+            if($max_section_num < $matches[1]) {
+              $max_section_num = $matches[1];
+            }
+          }
+        }
+      }
+      return $max_section_num;
+    }
+
     function move_field_value($from_page_id, $to_page_id, $field_label) {
       $field_name = $this->get_field_name($field_label);
       $this->update_post_id($from_page_id, $to_page_id, $field_name); 
@@ -202,6 +254,119 @@ class YAACF_Command extends WP_CLI_Command {
       }
     }
 
+    function append_field_value($from_page_id, $to_page_id, $from_mk, $to_mk) {
+      $link_from_mk = '_' . $from_mk;
+      $link_to_mk = '_' . $to_mk;
+
+      if($this->debugacf || $this->testrun) {
+        error_log("_dbg in append_field_value");
+      }
+      $meta_values = get_post_meta($from_page_id);
+      foreach ($meta_values as $meta_key => $meta_value) {
+        if($this->debugacf || $this->testrun) {
+          error_log("_dbg processing field with mk: " . $meta_key);
+        }
+        if($from_mk == $meta_key) { 
+	  $this->update_mk($from_page_id, $from_mk, $to_mk); 
+	  $this->update_post_id($from_page_id, $to_page_id, $to_mk); 
+        } 
+        if($link_from_mk == $meta_key) {
+          if($this->debugacf || $this->testrun) {
+            error_log("_dbg field _mk found " . $meta_key);
+          }
+	  $this->update_mk($from_page_id, $link_from_mk, $link_to_mk); 
+	  $this->update_post_id($from_page_id, $to_page_id, $link_to_mk); 
+        }
+      }
+    }
+
+    function append_fields($from_post_id, $to_post_id, $max_sec_num, $max_ord_num) {
+      if($this->debugacf) {
+        error_log("_dbg in append_fields");
+        error_log("_dbg max_sec_num: " . $max_sec_num);
+      }
+      $meta_values = get_post_meta($from_post_id);
+      if($this->testrun) {
+        error_log("_dbg # of meta_values found: " . count($meta_values));
+      }
+      $cur_from_sec_num = 0; 
+      $cur_to_sec_num = 0;
+
+      $from_page_id = $this->find_acf_group_page_id($from_post_id);
+      $to_page_id = $this->find_acf_group_page_id($to_post_id);
+      if($this->testrun) {
+        error_log("_dbg from page id: " . $from_page_id);
+        error_log("_dbg to page id: " . $to_page_id);
+      }
+
+      if($max_sec_num) {
+        $cur_to_sec_num = $max_sec_num + 1;
+      }
+
+      foreach ($meta_values as $meta_key => $meta_value) {
+        if (preg_match("/^field_/", $meta_key)) {
+          if($this->testrun) {
+            error_log("_dbg appending field with mk: " . $meta_key); 
+          }
+          $f = unserialize($meta_value[0]);
+          if (preg_match("/Section (\\d)+/", $f['label'], $matches)) {
+            if($this->testrun) {
+              error_log("_dbg field with Section found: " . $f['label']); 
+              error_log("_dbg cur_to_sec_num: " . $cur_to_sec_num);
+            }
+            if($cur_to_sec_num) {
+	      if(!$cur_from_sec_num) {
+		$cur_from_sec_num = $matches[1];
+	      }
+
+	      if($matches[1] > $cur_from_sec_num) {
+		$cur_to_sec_num++;  
+                $cur_from_sec_num = $matches[1];
+	      }
+
+              $old_name = $this->get_field_name($f['label']);
+              $f['label'] = str_replace($matches[1], $cur_to_sec_num, $f['label']);
+              $f['name'] = $this->get_field_name($f['label']);
+              $max_ord_num++;
+              $f['order_no'] = $max_ord_num;
+              if($this->testrun) {
+                error_log("_dbg going to update field with: " . json_encode($f));
+              } else {
+                update_post_meta($from_post_id, $meta_key, serialize($f));
+              }
+	      $this->update_post_id($from_post_id, $to_post_id, $meta_key); 
+              $this->append_field_value($from_page_id, $to_page_id, $old_name, $f['name']); 
+            }
+          }
+        }
+      }
+      return TRUE;    
+    }
+
+    function handle_field_appendall($assoc_args) {
+      $success=FALSE;
+      error_log("_dbg in handle_field_appendall");
+
+      $from_post_id = $assoc_args['field_from_group_id'];
+      $to_post_id = $assoc_args['field_to_group_id'];
+
+      $max_order_num = $this->get_max_order_num($from_post_id); 
+      $max_section_num = $this->get_max_section_num($to_post_id); 
+      if($this->testrun) {
+        error_log("_dbg max order num: " . $max_order_num);
+        error_log("_dbg max section num: " . $max_section_num);
+      }
+      
+      $success = $this->append_fields($from_post_id, $to_post_id, 
+                                             $max_section_num, $max_order_num); 
+
+      if ($success) {
+        WP_CLI::success('acf fields appended');
+      } else {
+        WP_CLI::error('failure appending acf fields');
+      }
+    }
+
     /**
      * Creates an advanced custom field field group
      * 
@@ -212,12 +377,19 @@ class YAACF_Command extends WP_CLI_Command {
      * 
      * ## EXAMPLES
      * 
-     *     wp yaacf field create --field_type='text' --field_label='Section 1 Header' --field_order_no=4 --field_group_id=118
+     *     wp yaacf field create --field_type='text' --field_label='Section 1 Header' --field_order_no=4 --field_group_id=118 --testrun
      *
-     * @synopsis <command> [--field_type=<field_type>] [--field_label=<field_label>] [--field_order_no=<field_order_no>] [--field_group_id=<field_group_id>] [--field_value=<field_value>] [--field_from_group_id=<field_from_group_id>] [--field_to_group_id=<field_to_group_id>]
+     * @synopsis <command> [--field_type=<field_type>] [--field_label=<field_label>] [--field_order_no=<field_order_no>] [--field_group_id=<field_group_id>] [--field_value=<field_value>] [--field_from_group_id=<field_from_group_id>] [--field_to_group_id=<field_to_group_id>] [--testrun]
      */
     function field( $args, $assoc_args ) {
         $cmd = $args[0];
+
+        if($assoc_args['testrun']) {
+          $this->testrun = TRUE;
+        }
+        if($assoc_args['debug']) {
+          $this->debugacf = TRUE;
+        }
 
         switch($cmd) {
           case 'create':
@@ -225,6 +397,9 @@ class YAACF_Command extends WP_CLI_Command {
           break;
           case 'move':
             $this->handle_field_move($assoc_args);
+          break;
+          case 'appendall':
+            $this->handle_field_appendall($assoc_args);
           break;
           default:
             WP_CLI::error('Unknown command: ' . $cmd);
