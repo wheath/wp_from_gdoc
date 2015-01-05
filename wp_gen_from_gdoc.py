@@ -11,7 +11,9 @@ p.add_argument('-u', '--user')
 p.add_argument('-p', '--password')
 p.add_argument('-d', '--docname')
 p.add_argument('-s', '--startstring')
+p.add_argument('-e', '--endstring')
 p.add_argument('-v', '--verbosity')
+p.add_argument('-r', '--refreshdoc')
 
 verbose = False
 
@@ -34,6 +36,7 @@ if not opts.startstring:
   arg_error = True
   print '-s is required'
 
+
 if not opts.docname:
   arg_error = True
   print '-d is required'
@@ -47,27 +50,44 @@ pages = []
 from BeautifulSoup import BeautifulSoup
 import mechanize
 
-def get_header_info(html_lines, cur_line_num):  
+def pprint_page(page_info):
+  print "title: %s\n" % page_info['title']
+  sections = page_info['after_title']
+  for section in sections:
+    for sec_key in section:
+      print "section key: %s, value: %s" % (sec_key, section[sec_key])
+
+def get_header_info(html_lines, cur_line_num, tag_name = 'span'):  
+  if verbose:
+    print "_dbg in get_header_info"
+  raw_str = ''
+  span_start_tag = '<span>'
+  span_end_tag = '</span>'
+
+  end_tag = ''
+  if tag_name != 'span': 
+    end_tag = '</%s>' % tag_name
+  
   if verbose:
     print '_dbg in get_header_info'
-    print '_dbg cur_line_num 1: %d' % cur_line_num
+    print '_dbg end_tag: %s' % end_tag
   cur_line = html_lines[cur_line_num]
-  if verbose:
-    print '_dbg initial cur_line: %s' % cur_line
-  title = ''
-  cur_line_num +=1
-  cur_line = html_lines[cur_line_num]
-  if verbose:
-    print '_dbg cur_line: %s' % cur_line
-  if 'name' in cur_line:
-    cur_line_num = cur_line_num+2
-    cur_line = html_lines[cur_line_num]
-    if 'span' in cur_line:
-      cur_line_num = cur_line_num+1
-      title = html_lines[cur_line_num]  
-      return title, cur_line_num+2
+  while cur_line_num < len(html_lines): 
+    if span_end_tag in cur_line:
+      break;
 
-  return '', cur_line_num
+    if end_tag and end_tag in cur_line:
+      break;
+    
+    if span_start_tag in cur_line:
+      cur_line_num += 1
+      raw_str += html_lines[cur_line_num]
+    cur_line_num += 1
+    cur_line = html_lines[cur_line_num]
+
+  if verbose:
+    print "_dbg raw_str: %s" % raw_str
+  return raw_str, cur_line_num + 1
 
 def get_raw_info(html_lines, cur_line_num, tag_name):  
   raw_str = ''
@@ -98,7 +118,7 @@ def get_tag(html_lines, cur_line_num, after_title, tag_name):
     if verbose:
       print '_dbg about to call get_header_info'
       print '_dbg cur_line_num 3: %d' % cur_line_num
-    tag_str, cur_line_num = get_header_info(html_lines, cur_line_num)
+    tag_str, cur_line_num = get_header_info(html_lines, cur_line_num, tag_name)
   else:
     tag_str, cur_line_num = get_raw_info(html_lines, cur_line_num, tag_name)
 
@@ -138,6 +158,8 @@ def get_after_title(html_lines, cur_line_num, after_title):
       cur_line_num = get_tag(html_lines, cur_line_num, after_title, 'subtitle')
     elif '<p' in cur_line:
       cur_line_num = get_tag(html_lines, cur_line_num, after_title, 'p')
+    elif '<ul' in cur_line:
+      cur_line_num = get_tag(html_lines, cur_line_num, after_title, 'ul')
 
     cur_line_num += 1
     if cur_line_num < len(html_lines):
@@ -166,7 +188,7 @@ def get_page_info(html_lines, cur_line_num):
   #finally:
   return page_info, cur_line_num
 
-def get_gdoc_as_html():
+def get_gdoc_as_html(docname):
 
   # Create a client class which will make HTTP requests with Google Docs server.
   client = gdata.docs.service.DocsService()
@@ -181,12 +203,12 @@ def get_gdoc_as_html():
   q['title-exact'] = 'true'
   feed = client.GetDocumentListFeed()
 
-  found = false
+  found = False
   if not feed.entry:
     if verbose:
       print 'No entries in feed.\n'
   for entry in feed.entry:
-    if opt.docname in entry.title.text:
+    if docname in entry.title.text:
       client.Download(entry, 'gdoc.html') 
       found = True
 
@@ -197,9 +219,17 @@ if found:
   br.set_handle_equiv(False)
   br.addheaders = [('User-agent', 'Firefox')]
 
+
+  import os.path
+  if not os.path.isfile('gdoc.html'):
+    get_gdoc_as_html(opts.docname)
+  
   html_str = open('gdoc.html').read()
   soup = BeautifulSoup(html_str)
   html_pretty = soup.prettify()
+  f = open('pretty.html', 'w')
+  f.write(html_pretty)
+  f.close() 
   if verbose:
     print html_pretty
   #sys.exit(1)
@@ -224,9 +254,12 @@ if found:
       page_info, cur_line_num = get_page_info(html_lines, cur_line_num)  
       if page_info:
 	pages.append(page_info)
+        if opts.endstring in json.dumps(page_info):
+          break;
     #finally:
+
     cur_line_num += 1
 
 print "_dbg num pages found: %d" % len(pages)
 for page in pages:
-  print "_dbg page: %s" % page 
+  print "_dbg page: %s" % pprint_page(page) 
