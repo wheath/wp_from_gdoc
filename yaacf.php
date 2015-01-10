@@ -13,6 +13,8 @@ class YAACF_Command extends WP_CLI_Command {
     }
 
     function assign_page_to_field_group($fgrp_id, $page_id) {
+      error_log("_dbg in assign_page_to_field_group");
+      error_log("_dbg  page_id: " . $page_id);
       $rule_json = '{"param":"page","operator":"==","value":"111","order_no":0,"group_no":0}';
       $rule_arr = json_decode($rule_json, true);
       $rule_arr['value'] = $page_id;
@@ -52,7 +54,7 @@ class YAACF_Command extends WP_CLI_Command {
       if(is_wp_error($post_id)) {
         WP_CLI::warning($post_id);
       } else {
-        $meta_rule_id = $this->assign_page_to_field_group($post_id, $assoc_array['page_id']); 
+        $meta_rule_id = $this->assign_page_to_field_group($post_id, $assoc_args['page_id']); 
         if($meta_rule_id) {
           WP_CLI::success('acf field group created with post id: ' . $post_id);
         } else {
@@ -90,19 +92,24 @@ class YAACF_Command extends WP_CLI_Command {
     }
 
     function assign_value_to_field($fgrp_id, $f_meta_key, $f_name, $f_value) {
-      $meta_values = get_post_meta($fgrp_id, 'rule');
-      $page_id = $meta_values[0][value];
-      error_log("_dbg meta_values: " . json_encode($meta_values));
+      $page_id = $this->find_acf_group_page_id($fgrp_id);
       $postmeta_id = add_post_meta($page_id, '_' . $f_name, $f_meta_key);
       error_log("_dbg ref id: " . $postmeta_id);
       $postmeta_id = add_post_meta($page_id, $f_name, $f_value);
       error_log("_dbg value id: " . $postmeta_id);
     }
 
+
     function handle_field_create($assoc_args) {
 
       //$meta_values = get_post_meta( $post_id, $key, $single );
       $post_id = $assoc_args['field_group_id'];
+      $page_id = $this->find_acf_group_page_id($post_id);
+      if(!$page_id) {
+        echo "unable to locate page id for acf group id " . $post_id . " exiting...";
+      } else {
+        echo "_dbg page_id found for acf group id: " . $post_id . " is " . $page_id;
+      }
       /*
       $meta_values = get_post_meta(114, 'field_54935e382ec8d');
       $meta_value = $meta_values[0];
@@ -115,21 +122,60 @@ class YAACF_Command extends WP_CLI_Command {
       //error_log("_dbg key: " . $meta_value['key']);
       $field_arr['key'] = $meta_key; 
       $field_arr['label'] = $assoc_args['field_label'];
+      $field_arr['type'] = $assoc_args['field_type'];
+      $field_arr['order_no'] = $assoc_args['field_order_no'];
 
-      $field_name = strtolower($assoc_args['field_label']);
-      $field_name = str_replace(' ', '-', $field_name);
-      $field_arr['name'] = $assoc_args['field_name'];
+      $field_arr['name'] = $this->get_field_name($assoc_args['field_label']);
 
       //error_log("_dbg key: " . $meta_value['key']);
       //wp post meta delete 116 field_tim
       $postmeta_id = add_post_meta($post_id, $meta_key, serialize($field_arr));
       if($postmeta_id) {
-        $this->assign_value_to_field($post_meta_id, $meta_key, 'section_1_header', 'test value');
+        $this->assign_value_to_field($post_id, $meta_key, $field_arr['name'], $assoc_args['field_value']);
         WP_CLI::success('acf field created with postmeta id: ' . $postmeta_id);
       } else {
         WP_CLI::error('failure creating acf field');
       }
 
+    }
+
+    function handle_field_create_json_file($assoc_args) {
+      $fgrp_id = $assoc_args['field_group_id'];
+      $page_id = $this->find_acf_group_page_id($fgrp_id);
+      if(!$page_id) {
+        echo "unable to locate page id for acf group id " . $post_id . " exiting...\n";
+        exit(1);
+      } else {
+        echo "_dbg page_id found for acf group id: " . $post_id . " is " . $page_id;
+      }
+      $json_file_name = $assoc_args['field_json_file'];
+      $json_str = file_get_contents($json_file_name);
+      $wp_fields = json_decode($json_str, true);
+      error_log("_dbg fields for page: " . $wp_fields['page_name']);
+      $order_cnt = 0;
+      foreach ($wp_fields['sections'] as $section) {
+	foreach ($section as $field_key => $field_value) {
+	  error_log("_dbg field key: " . $field_key);
+	  error_log("_dbg field value: " . $field_value);
+          $assoc_args['field_label'] = $field_key;
+          $assoc_args['field_order_no'] = $order_cnt++;
+          $assoc_args['field_value'] = $field_value;
+          $assoc_args['field_type'] = 'text';
+          $pos = strpos($field_key, 'Content');
+          if ($pos !== false) {
+            $assoc_args['field_type'] = 'textarea';
+          }
+          //FIXME: needed because meta_key is using time withe field + time()
+          // won't be unique without waiting one second
+          // would be better to use an auto incrementing key
+          sleep(1);
+          $this->handle_field_create($assoc_args);
+          #if($order_cnt == 3) {
+            #exit(1);
+          #}
+        
+	}
+      }
     }
 
     function update_post_id($from_post_id, $to_post_id, $meta_key) {
@@ -158,8 +204,12 @@ class YAACF_Command extends WP_CLI_Command {
       $meta_values = get_post_meta($acf_group_id);
       $acf_group_page_id = 0;
       foreach ($meta_values as $meta_key => $meta_value) {
-        if ($meta_key === 'rule') {
+        if ($meta_key == 'rule') {
+          error_log("_dbg meta_value: " . json_encode($meta_value));
           $rule = unserialize($meta_value[0]);
+          if(!is_array($rule)) {
+            $rule = unserialize($rule);
+          }
           if($rule['param'] === 'page') {
             error_log("_dbg rule value: " . $rule['value']);
             $acf_group_page_id = $rule['value'];
@@ -379,7 +429,7 @@ class YAACF_Command extends WP_CLI_Command {
      * 
      *     wp yaacf field create --field_type='text' --field_label='Section 1 Header' --field_order_no=4 --field_group_id=118 --testrun
      *
-     * @synopsis <command> [--field_type=<field_type>] [--field_label=<field_label>] [--field_order_no=<field_order_no>] [--field_group_id=<field_group_id>] [--field_value=<field_value>] [--field_from_group_id=<field_from_group_id>] [--field_to_group_id=<field_to_group_id>] [--testrun]
+     * @synopsis <command> [--field_type=<field_type>] [--field_label=<field_label>] [--field_order_no=<field_order_no>] [--field_group_id=<field_group_id>] [--field_value=<field_value>] [--field_from_group_id=<field_from_group_id>] [--field_to_group_id=<field_to_group_id>] [--testrun] [--field_json_file=<field_json_file>]
      */
     function field( $args, $assoc_args ) {
         $cmd = $args[0];
@@ -393,7 +443,11 @@ class YAACF_Command extends WP_CLI_Command {
 
         switch($cmd) {
           case 'create':
-            $this->handle_field_create($assoc_args);
+            if($assoc_args['field_json_file']) {
+              $this->handle_field_create_json_file($assoc_args); 
+            } else {
+              $this->handle_field_create($assoc_args);
+            }
           break;
           case 'move':
             $this->handle_field_move($assoc_args);
