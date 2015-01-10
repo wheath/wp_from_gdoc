@@ -57,137 +57,110 @@ def pprint_page(page_info):
     for sec_key in section:
       print "section key: %s, value: %s" % (sec_key, section[sec_key])
 
-def get_header_info(html_lines, cur_line_num, tag_name = 'span'):  
-  if verbose:
-    print "_dbg in get_header_info"
-  raw_str = ''
-  span_start_tag = '<span>'
-  span_end_tag = '</span>'
+def pprint_acf(acf_info):
+  print "page_name: %s\n" % acf_info['page_name']
+  sections = acf_info['sections']
+  for section in sections:
+    for sec_key in section:
+      #print "section key: %s" % sec_key
+      print "section key: %s, value: %s" % (sec_key, section[sec_key])
 
-  end_tag = ''
-  if tag_name != 'span': 
-    end_tag = '</%s>' % tag_name
-  
-  if verbose:
-    print '_dbg in get_header_info'
-    print '_dbg end_tag: %s' % end_tag
-  cur_line = html_lines[cur_line_num]
-  while cur_line_num < len(html_lines): 
-    if span_end_tag in cur_line:
-      break;
+def convert_to_acf(page_info):
+  acf_info = {}
+  acf_info['page_name'] = page_info['title']
+  acf_info['sections'] = []
 
-    if end_tag and end_tag in cur_line:
-      break;
-    
-    if span_start_tag in cur_line:
-      cur_line_num += 1
-      raw_str += html_lines[cur_line_num]
-    cur_line_num += 1
-    cur_line = html_lines[cur_line_num]
+  sections = page_info['after_title']
 
-  if verbose:
-    print "_dbg raw_str: %s" % raw_str
-  return raw_str, cur_line_num + 1
+  headers = ['h1', 'h2', 'h3']
+  non_headers = ['subtitle']
+  ignores = ['h5', 'h6']
+  content_tags = ['p', 'ul']
 
-def get_raw_info(html_lines, cur_line_num, tag_name):  
-  raw_str = ''
-  end_tag = '</%s>' % tag_name
-  if verbose:
-    print '_dbg in get_raw_info'
-    print '_dbg end_tag: %s' % end_tag
-  cur_line = html_lines[cur_line_num]
-  while cur_line_num < len(html_lines) and end_tag  not in cur_line:
-    raw_str += html_lines[cur_line_num]
-    cur_line_num += 1
-    cur_line = html_lines[cur_line_num]
+  print "_dbg num sections: %d" % len(sections) 
+  print "_dbg page_info: " % page_info
+  content_num = 0
+  contents = ''
+  for section in sections:
+    for sec_key in section:
+      print "section key: %s, value: %s" % (sec_key, section[sec_key])
+      if sec_key not in ignores and sec_key in headers:
+        section_info = {}
+        contents = contents.strip()
+        if contents:
+          section_info['Section %d Content' % content_num] = contents
+          acf_info['sections'].append(section_info)
+          contents = ''
 
-  if end_tag in cur_line:
-    raw_str += end_tag
-  return raw_str, cur_line_num
-    
-  
+        content_num += 1
+        section_info = {}
+        section_info['Section %d Header %s' % (content_num, sec_key)] = section[sec_key].strip()
+        acf_info['sections'].append(section_info)
+      
+      if sec_key not in ignores and sec_key in non_headers:
+        section_info = {}
+        section_info['Section %d %s' % (content_num, sec_key)] = section[sec_key]
+        acf_info['sections'].append(section_info)
 
-def get_title(html_lines, cur_line_num):  
-  if verbose:
-    print '_dbg in get_title'
-    print '_dbg cur_line_num 2: %d' % cur_line_num
-  return get_header_info(html_lines, cur_line_num)
+      if sec_key in content_tags:
+        contents += section[sec_key]
 
-def get_tag(html_lines, cur_line_num, after_title, tag_name):
-  if 'h' in tag_name or 'subtitle' in tag_name:
-    if verbose:
-      print '_dbg about to call get_header_info'
-      print '_dbg cur_line_num 3: %d' % cur_line_num
-    tag_str, cur_line_num = get_header_info(html_lines, cur_line_num, tag_name)
-  else:
-    tag_str, cur_line_num = get_raw_info(html_lines, cur_line_num, tag_name)
+  section_info = {}
+  contents = contents.strip()
+  if contents:
+    section_info = {}
+    section_info['Section %d Content' % content_num] = contents
+    acf_info['sections'].append(section_info)
+                   
+  return acf_info 
 
-  if tag_str:
-    new_tag = {}
-    new_tag[tag_name] = tag_str
-    after_title.append(new_tag)      
+def get_level_1_elements(html_lines):
+  l1s = []
+  html_str = ''.join(html_lines)
+  #soup = BeautifulSoup('<html>' + html_str + '</html>')
+  soup = BeautifulSoup(html_str)
+  for child in soup.recursiveChildGenerator():
+    #if child and  not child.isspace() and hasattr(child, 'parent') and child.parent == soup:
+    if hasattr(child, 'parent') and child.parent == soup:
+      try:
+        #if child and not child.isspace():
+        #if str(child).strip():
+        name = getattr(child, "name", None)
+        #if name is not None:
+        if name is not None:
+          print "_dbg name: %s" % name
+          #if name == 'h2':
+          l1s.append(child)    
+      except:
+        pass
 
-  return cur_line_num
-  
+  print "_dbg num l1s: %d" % len(l1s)
 
-def get_after_title(html_lines, cur_line_num, after_title):
-  if verbose:
-    print 'in get_after_title' 
-  cur_line = html_lines[cur_line_num]
-  if verbose:
-    print '_dbg cur_line: %s' % cur_line
-  while cur_line_num < len(html_lines) and ' title' not in cur_line:
-    if verbose:
-      print '_dbg checking cur_line: %s' % cur_line
-    if '<h1' in cur_line:
-      if verbose:
-        print "_dbg about to call get_tag"
-        print '_dbg cur_line_num 4: %d' % cur_line_num
-      cur_line_num = get_tag(html_lines, cur_line_num, after_title, 'h1')
-    elif '<h2' in cur_line:
-      cur_line_num = get_tag(html_lines, cur_line_num, after_title, 'h2')
-    elif '<h3' in cur_line:
-      cur_line_num = get_tag(html_lines, cur_line_num, after_title, 'h3')
-    elif '<h4' in cur_line:
-      cur_line_num = get_tag(html_lines, cur_line_num, after_title, 'h4')
-    elif '<h5' in cur_line:
-      cur_line_num = get_tag(html_lines, cur_line_num, after_title, 'h5')
-    elif '<h6' in cur_line:
-      cur_line_num = get_tag(html_lines, cur_line_num, after_title, 'h6')
-    elif 'subtitle' in cur_line:
-      cur_line_num = get_tag(html_lines, cur_line_num, after_title, 'subtitle')
-    elif '<p' in cur_line:
-      cur_line_num = get_tag(html_lines, cur_line_num, after_title, 'p')
-    elif '<ul' in cur_line:
-      cur_line_num = get_tag(html_lines, cur_line_num, after_title, 'ul')
+  #i = 0
+  #for l1 in l1s:
+  #while i < len(l1s):
+    #l1 = l1s[i]
+    #print "_dbg i: %d name: %s child: %s" % (i, l1.name, l1.text)
+    #i+=1
+  #sys.exit(1)
+  return l1s
 
-    cur_line_num += 1
-    if cur_line_num < len(html_lines):
-      cur_line = html_lines[cur_line_num]
+def filter_html_lines(opts, html_lines):
+  s = 0
+  e = len(html_lines) - 1
+  i = 0
+  for l in html_lines:
+    l = html_lines[i]
+    if opts.startstring in l:
+      s = i
+    i+=1
+    if opts.endstring in l:
+      e = i
 
-  if ' title' in cur_line:
-    cur_line_num += -1
-
-  return cur_line_num
-
-
-def get_page_info(html_lines, cur_line_num):  
-  page_info = {}
-  #try:
-  title, cur_line_num = get_title(html_lines, cur_line_num)  
-  if title:
-    page_info['title'] = title
-    page_info['after_title'] = []
-    after_title = page_info['after_title']
-    if verbose:
-      print '_dbg about to call get_after_title'
-    if cur_line_num + 1 < len(html_lines):
-      if verbose:
-        print '_dbg cur_line_num 5: %d' % cur_line_num 
-      cur_line_num = get_after_title(html_lines, cur_line_num+1, after_title)  
-  #finally:
-  return page_info, cur_line_num
-
+  html_lines = html_lines[s:e]
+  #print html_lines
+  return html_lines
+     
 def get_gdoc_as_html(docname):
 
   # Create a client class which will make HTTP requests with Google Docs server.
@@ -234,32 +207,70 @@ if found:
     print html_pretty
   #sys.exit(1)
   html_lines = html_pretty.split('\n')
-  num_html_lines = len(html_lines)
+  html_lines = filter_html_lines(opts, html_lines)
   if verbose:
-    print '_dbg num lines: %d' % len(html_lines)
-
-  cur_line_num = 0
-  start_found = False
+    print '_dbg num html lines: %d' % len(html_lines)
   
-  while cur_line_num < num_html_lines:
-    cur_line = html_lines[cur_line_num]
-    if not start_found:
-      if opts.startstring in cur_line:
-        start_found = True  
-      cur_line_num += 1
-      continue
-    
-    #try:
-    if ' title' in cur_line in cur_line: 
-      page_info, cur_line_num = get_page_info(html_lines, cur_line_num)  
-      if page_info:
-	pages.append(page_info)
-        if opts.endstring in json.dumps(page_info):
-          break;
-    #finally:
+  l1s = get_level_1_elements(html_lines)
+  num_l1s = len(l1s)
+  if verbose:
+    print '_dbg num l1s: %d' % num_l1s
 
-    cur_line_num += 1
+  cur_l1_num = 0
+  start_found = False
+
+  page_info = {}
+  sections = []
+  section_num = 0 
+  section_content = []
+  html_tags = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'subtitle', 'p', 'ul'];
+
+  for cur_l1 in l1s:
+    print "_dbg name: %s" % cur_l1.name 
+    if cur_l1.name == 'p' and cur_l1.has_key('class') and  'subtitle' not in cur_l1['class'] and 'title' in cur_l1['class']:
+      print "_dbg title found"
+      if page_info:
+        print "_dbg appending page: %s" % page_info
+	pages.append(page_info)
+      page_info = {}
+      page_info['title'] = cur_l1.text
+      page_info['after_title'] = []
+   
+    elif cur_l1.name in  html_tags and page_info:
+      print "_dbg non title found"
+      #sys.exit(1)
+      new_tag = {}
+      if cur_l1.text.strip():
+        if cur_l1.name == 'p':
+	  new_tag[cur_l1.name] = '<p>' + cur_l1.text + '</p>'
+        else:
+	  new_tag[cur_l1.name] = cur_l1.text
+	page_info['after_title'].append(new_tag)      
+	#print "_dbg current page: %s" % page_info
+
+if page_info not in pages:
+  pages.append(page_info)
+  
+  new_tag = {}
+  new_tag['h1'] = 'Lower IT Costs With Customized IaaS Solutions'
+  page_info['after_title'].insert(0, new_tag)
+
+  new_tag = {}
+  new_tag['subtitle'] = 'Providing Top-level, Personalized IT Solutions Custom-built To Suit Your Needs'
+  page_info['after_title'].insert(1, new_tag)
 
 print "_dbg num pages found: %d" % len(pages)
 for page in pages:
-  print "_dbg page: %s" % pprint_page(page) 
+  #print "_dbg current page: %s" % page_info
+  if not page:
+    continue
+  #print "_dbg page: %s" % pprint_page(page) 
+  acf_info = convert_to_acf(page)
+  print "_dbg acf info: %s" % json.dumps(acf_info)
+  pprint_acf(acf_info)
+  f = open('acf_info.json', 'w')
+  f.write(json.dumps(acf_info))
+  f.close() 
+  #FIXME: assume one page at a time
+  #if opts.endstring:
+  #  break;
