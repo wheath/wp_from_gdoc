@@ -19,7 +19,7 @@ class YAACF_Command extends WP_CLI_Command {
       $rule_arr = json_decode($rule_json, true);
       $rule_arr['value'] = $page_id;
       error_log("_dbg rule_arr: " . json_encode($rule_arr));
-      $rule_meta_id = add_post_meta($fgrp_id, 'rule', serialize($rule_arr));
+      $rule_meta_id = add_post_meta($fgrp_id, 'rule', serialize(serialize($rule_arr)));
 
       return $rule_meta_id; 
     }
@@ -84,6 +84,12 @@ class YAACF_Command extends WP_CLI_Command {
           case 'create':
             $this->handle_field_group_create($assoc_args);
           break;
+          case 'rmrequiredall':
+            $this->handle_field_group_rmrequiredall($assoc_args);
+          break;
+          case 'fixdblserializeall':
+            $this->handle_field_group_fixdblserializeall($assoc_args);
+          break;
           default:
             WP_CLI::error('Unknown field_group command: ' . $cmd);
           break;
@@ -129,7 +135,7 @@ class YAACF_Command extends WP_CLI_Command {
 
       //error_log("_dbg key: " . $meta_value['key']);
       //wp post meta delete 116 field_tim
-      $postmeta_id = add_post_meta($post_id, $meta_key, serialize($field_arr));
+      $postmeta_id = add_post_meta($post_id, $meta_key, serialize(serialize($field_arr)));
       if($postmeta_id) {
         $this->assign_value_to_field($post_id, $meta_key, $field_arr['name'], $assoc_args['field_value']);
         WP_CLI::success('acf field created with postmeta id: ' . $postmeta_id);
@@ -207,9 +213,7 @@ class YAACF_Command extends WP_CLI_Command {
         if ($meta_key == 'rule') {
           error_log("_dbg meta_value: " . json_encode($meta_value));
           $rule = unserialize($meta_value[0]);
-          if(!is_array($rule)) {
-            $rule = unserialize($rule);
-          }
+          $rule = unserialize($rule);
           if($rule['param'] === 'page') {
             error_log("_dbg rule value: " . $rule['value']);
             $acf_group_page_id = $rule['value'];
@@ -227,6 +231,7 @@ class YAACF_Command extends WP_CLI_Command {
         if (preg_match("/^field_/", $meta_key)) {
           error_log("_dbg field_ found");
           $f = unserialize($meta_value[0]);
+          $f = unserialize($f);
           if ($f['label'] === $field_label) {
             $found_meta_key = $meta_key;
             return $found_meta_key;   
@@ -246,6 +251,7 @@ class YAACF_Command extends WP_CLI_Command {
       foreach ($meta_values as $meta_key => $meta_value) {
         if (preg_match("/^field_/", $meta_key)) {
           $f = unserialize($meta_value[0]);
+          $f = unserialize($f);
 	  if($this->testrun) {
 	    error_log("_dbg field order number: " . $f['order_no']);
 	  }
@@ -263,6 +269,7 @@ class YAACF_Command extends WP_CLI_Command {
       foreach ($meta_values as $meta_key => $meta_value) {
         if (preg_match("/^field_/", $meta_key)) {
           $f = unserialize($meta_value[0]);
+          $f = unserialize($f);
           if (preg_match("/Section (\\d)+/", $f['label'], $matches)) {
             if($max_section_num < $matches[1]) {
               $max_section_num = $matches[1];
@@ -359,6 +366,7 @@ class YAACF_Command extends WP_CLI_Command {
             error_log("_dbg appending field with mk: " . $meta_key); 
           }
           $f = unserialize($meta_value[0]);
+          $f = unserialize($f);
           if (preg_match("/Section (\\d)+/", $f['label'], $matches)) {
             if($this->testrun) {
               error_log("_dbg field with Section found: " . $f['label']); 
@@ -382,7 +390,7 @@ class YAACF_Command extends WP_CLI_Command {
               if($this->testrun) {
                 error_log("_dbg going to update field with: " . json_encode($f));
               } else {
-                update_post_meta($from_post_id, $meta_key, serialize($f));
+                update_post_meta($from_post_id, $meta_key, serialize(serialize($f)));
               }
 	      $this->update_post_id($from_post_id, $to_post_id, $meta_key); 
               $this->append_field_value($from_page_id, $to_page_id, $old_name, $f['name']); 
@@ -414,6 +422,87 @@ class YAACF_Command extends WP_CLI_Command {
         WP_CLI::success('acf fields appended');
       } else {
         WP_CLI::error('failure appending acf fields');
+      }
+    }
+
+    function handle_field_group_rmrequiredall($assoc_args) {
+      if($this->debugacf) {
+        error_log("_dbg in handle_field_rmrequiredall");
+      }
+
+      global $wpdb;
+      $sql = "SELECT meta_id, meta_value FROM `wp_postmeta` WHERE `meta_key` LIKE 'field_%'";
+
+      if($this->testrun) {
+        error_log("_dbg get all acf fields sql: " . $sql);
+      } else {
+        $cnt = 0;
+        $acf_fields = $wpdb->get_results($sql);
+        foreach($acf_fields as $acf_field) {
+          $mvalue = $acf_field->meta_value;
+          $mvalue_str = unserialize($mvalue);
+          $f = unserialize($mvalue_str);
+          if($f['required']) {
+            if($this->debugacf) {
+              error_log("_dbg  meta id: " . $acf_field->meta_id);
+              error_log("_dbg  meta value: " . $acf_field->meta_value);
+              error_log("_dbg  required: " . $f['required']);
+            }
+            $f['required'] = 0;
+            $sql = $wpdb->prepare("UPDATE `wp_postmeta` SET `meta_value` = %s WHERE `meta_id` = %d", serialize(serialize($f)), $acf_field->meta_id);
+            if($this->debugacf) {
+              error_log("_dbg update acf field value sql: " . $sql);
+            }
+            $cnt++;
+            $wpdb->query($sql);
+          }
+        }
+      }
+
+      if($cnt) {
+        WP_CLI::success("all ($cnt) acf fields no longer required");
+      } else {
+        WP_CLI::error('failure removing required from any acf fields');
+      }
+    }
+
+    function handle_field_group_fixdblserializeall($assoc_args) {
+      if($this->debugacf) {
+        error_log("_dbg in handle_field_group_fixdblserializeall");
+      }
+
+      global $wpdb;
+      $sql = "SELECT meta_id, meta_value FROM `wp_postmeta` WHERE `meta_key` LIKE 'field_%' OR `meta_key` = 'rule'";
+
+      if($this->testrun) {
+        error_log("_dbg get all acf fields sql: " . $sql);
+      } else {
+        $acf_fields = $wpdb->get_results($sql);
+        if($this->debugacf) {
+          error_log("_dbg # of acf_fields found: " . count($acf_fields));
+        }
+        $cnt =0;
+        foreach($acf_fields as $acf_field) {
+          $mvalue = $acf_field->meta_value;
+          $mvalue_str = unserialize($mvalue);
+          if(is_array($mvalue_str)) {
+            $cnt++;
+            $sql = $wpdb->prepare("UPDATE `wp_postmeta` SET `meta_value` = %s WHERE `meta_id` = %d", serialize($mvalue), $acf_field->meta_id);
+            if($this->debugacf) {
+              error_log("_dbg update acf field value sql: " . $sql);
+            }
+            $wpdb->query($sql);
+            if($this->debugacf) {
+              error_log("_dbg # of acf_fields id $acf_field->meta_id corrected");
+            }
+          }
+        }
+      }
+
+      if($cnt) {
+        WP_CLI::success("all ($cnt) acf fields changed to use double serialization");
+      } else {
+        WP_CLI::error('failure converting all acf fields to use double serialization');
       }
     }
 

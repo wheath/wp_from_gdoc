@@ -14,6 +14,7 @@ p.add_argument('-s', '--startstring')
 p.add_argument('-e', '--endstring')
 p.add_argument('-v', '--verbosity')
 p.add_argument('-r', '--refreshdoc')
+p.add_argument('-z', '--zpagename')
 
 verbose = False
 
@@ -40,6 +41,10 @@ if not opts.startstring:
 if not opts.docname:
   arg_error = True
   print '-d is required'
+
+if not opts.zpagename:
+  arg_error = True
+  print '-z is required'
 
 if arg_error:
   print "example usage: wp_gen_from_gdoc.py -u xyz@google.com -p mypassword' -d 'google doc name' -s 'start string to begin parsing/converting to wp'"
@@ -75,7 +80,7 @@ def convert_to_acf(page_info):
   headers = ['h1', 'h2', 'h3']
   non_headers = ['subtitle']
   ignores = ['h5', 'h6']
-  content_tags = ['p', 'ul']
+  content_tags = ['p', 'ul', 'table']
 
   print "_dbg num sections: %d" % len(sections) 
   print "_dbg page_info: " % page_info
@@ -147,19 +152,44 @@ def get_level_1_elements(html_lines):
 
 def filter_html_lines(opts, html_lines):
   s = 0
+  start_found = False
   e = len(html_lines) - 1
   i = 0
   for l in html_lines:
     l = html_lines[i]
     if opts.startstring in l:
-      s = i
+      s = i-5
+      start_found = True
     i+=1
-    if opts.endstring in l:
+    if opts.endstring in l and start_found:
       e = i
 
   html_lines = html_lines[s:e]
   #print html_lines
   return html_lines
+
+def add_manual_content(page_info):
+  new_tag = {}
+  new_tag['h1'] = 'Lower IT Costs With Customized IaaS Solutions'
+  page_info['after_title'].insert(0, new_tag)
+
+  new_tag = {}
+  new_tag['subtitle'] = 'Providing Top-level, Personalized IT Solutions Custom-built To Suit Your Needs'
+  page_info['after_title'].insert(1, new_tag)
+
+def add_page(pages, page_info, opts):
+  print '_dbg zpagename: %s' % opts.zpagename
+  if page_info not in pages:
+    print '_dbg page title: %s' % page_info['title']
+    if opts.zpagename:
+      if opts.zpagename == page_info['title'].strip():
+        pages.append(page_info)
+        return True
+      else:
+        print '_dbg did not append page title: %s' % page_info['title']
+    else:
+      pages.append(page_info)
+  
      
 def get_gdoc_as_html(docname):
 
@@ -194,7 +224,7 @@ if found:
 
 
   import os.path
-  if not os.path.isfile('gdoc.html'):
+  if not os.path.isfile('gdoc.html') or opts.refreshdoc:
     get_gdoc_as_html(opts.docname)
   
   html_str = open('gdoc.html').read()
@@ -205,16 +235,18 @@ if found:
   f.close() 
   if verbose:
     print html_pretty
-  #sys.exit(1)
   html_lines = html_pretty.split('\n')
   html_lines = filter_html_lines(opts, html_lines)
   if verbose:
     print '_dbg num html lines: %d' % len(html_lines)
+    #print '_dbg html lines: %s' % html_lines
+  #sys.exit(1)
   
   l1s = get_level_1_elements(html_lines)
   num_l1s = len(l1s)
   if verbose:
     print '_dbg num l1s: %d' % num_l1s
+
 
   cur_l1_num = 0
   start_found = False
@@ -223,48 +255,45 @@ if found:
   sections = []
   section_num = 0 
   section_content = []
-  html_tags = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'subtitle', 'p', 'ul'];
+  html_tags = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'subtitle', 'p', 'ul', 'table'];
 
   for cur_l1 in l1s:
-    print "_dbg name: %s" % cur_l1.name 
+    #print "_dbg name: %s" % cur_l1.name 
     if cur_l1.name == 'p' and cur_l1.has_key('class') and  'subtitle' not in cur_l1['class'] and 'title' in cur_l1['class']:
-      print "_dbg title found"
+      #print "_dbg title found"
       if page_info:
-        print "_dbg appending page: %s" % page_info
-	pages.append(page_info)
+        print "_dbg attempt appending page name: %s" % page_info['title']
+        if(add_page(pages, page_info, opts)):
+          break;
       page_info = {}
       page_info['title'] = cur_l1.text
       page_info['after_title'] = []
    
     elif cur_l1.name in  html_tags and page_info:
-      print "_dbg non title found"
+      #print "_dbg non title found"
       #sys.exit(1)
       new_tag = {}
       if cur_l1.text.strip():
+        print '_dbg cur_l1.name: %s' % cur_l1.name 
         if cur_l1.name == 'p':
+          print '_dbg p found'
 	  new_tag[cur_l1.name] = '<p>' + cur_l1.text + '</p>'
+        elif cur_l1.name == 'ul':
+          print "_dbg contents: %s" % cur_l1.contents
+	  new_tag[cur_l1.name] = '<ul>' + ''.join(str(v) for v in cur_l1.contents) + '</ul>'
         else:
 	  new_tag[cur_l1.name] = cur_l1.text
 	page_info['after_title'].append(new_tag)      
 	#print "_dbg current page: %s" % page_info
 
-if page_info not in pages:
-  pages.append(page_info)
-  
-  new_tag = {}
-  new_tag['h1'] = 'Lower IT Costs With Customized IaaS Solutions'
-  page_info['after_title'].insert(0, new_tag)
-
-  new_tag = {}
-  new_tag['subtitle'] = 'Providing Top-level, Personalized IT Solutions Custom-built To Suit Your Needs'
-  page_info['after_title'].insert(1, new_tag)
-
+add_page(pages, page_info, opts)
 print "_dbg num pages found: %d" % len(pages)
+
 for page in pages:
   #print "_dbg current page: %s" % page_info
   if not page:
     continue
-  #print "_dbg page: %s" % pprint_page(page) 
+  print "_dbg page: %s" % pprint_page(page) 
   acf_info = convert_to_acf(page)
   print "_dbg acf info: %s" % json.dumps(acf_info)
   pprint_acf(acf_info)
