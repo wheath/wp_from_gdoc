@@ -19,7 +19,7 @@ class YAACF_Command extends WP_CLI_Command {
       $rule_arr = json_decode($rule_json, true);
       $rule_arr['value'] = $page_id;
       error_log("_dbg rule_arr: " . json_encode($rule_arr));
-      $rule_meta_id = add_post_meta($fgrp_id, 'rule', serialize(serialize($rule_arr)));
+      $rule_meta_id = add_post_meta($fgrp_id, 'rule', serialize($rule_arr));
 
       return $rule_meta_id; 
     }
@@ -122,7 +122,7 @@ class YAACF_Command extends WP_CLI_Command {
       error_log("_dbg meta_value: " . json_encode($meta_value));
       */
       /* select * from wp_postmeta where post_id = 114\G; */
-      $json_field = '{"key":"field_54935e382ec8d","label":"Section 1 Header","name":"section_1_header","type":"text","instructions":"","required":"1","default_value":"","placeholder":"","prepend":"","append":"","formatting":"html","maxlength":"","conditional_logic":{"status":"0","rules":[{"field":"null","operator":"=="}],"allorany":"all"},"order_no":0}';
+      $json_field = '{"key":"field_54935e382ec8d","label":"Section 1 Header","name":"section_1_header","type":"text","instructions":"","required":"0","default_value":"","placeholder":"","prepend":"","append":"","formatting":"html","maxlength":"","conditional_logic":{"status":"0","rules":[{"field":"null","operator":"=="}],"allorany":"all"},"order_no":0}';
       $field_arr = json_decode($json_field, true);
       $meta_key = 'field_' . time();
       //error_log("_dbg key: " . $meta_value['key']);
@@ -135,7 +135,7 @@ class YAACF_Command extends WP_CLI_Command {
 
       //error_log("_dbg key: " . $meta_value['key']);
       //wp post meta delete 116 field_tim
-      $postmeta_id = add_post_meta($post_id, $meta_key, serialize(serialize($field_arr)));
+      $postmeta_id = add_post_meta($post_id, $meta_key, serialize($field_arr));
       if($postmeta_id) {
         $this->assign_value_to_field($post_id, $meta_key, $field_arr['name'], $assoc_args['field_value']);
         WP_CLI::success('acf field created with postmeta id: ' . $postmeta_id);
@@ -390,7 +390,7 @@ class YAACF_Command extends WP_CLI_Command {
               if($this->testrun) {
                 error_log("_dbg going to update field with: " . json_encode($f));
               } else {
-                update_post_meta($from_post_id, $meta_key, serialize(serialize($f)));
+                update_post_meta($from_post_id, $meta_key, serialize($f));
               }
 	      $this->update_post_id($from_post_id, $to_post_id, $meta_key); 
               $this->append_field_value($from_page_id, $to_page_id, $old_name, $f['name']); 
